@@ -1,17 +1,18 @@
 import "./Chatbot.css";
 import { useEffect, useState } from "react";
-import { CreateNewTicket } from "../../pocketbase/config";
+import { CreateNewTicket, createMultipleRecords, fetchCarSaleCategories, fetchCarSales } from "../../pocketbase/config";
 import { ollama } from "../../ollama/config";
 import Markdown from "react-markdown";
 
 function Chatbot() {
   const once = "once";
   const [messageResponse, setMessageResponse] = useState("");
+  
   const [messages, setMessages] = useState([
     {
       role: "system",
       content:
-        "Your name is Beemie, whenever the user greets you will always introduce your self and tell them that you are willing to help them with anything, you can have a friendly chat with the user, please also make the user feel welcome. You are also an agent who will listen to any of the user's issues, and if you can't solve the issue within 5 prompts from the user mentioning the issue you will have to ask the user if the want to submit a ticket, but you will have to atleast provided 3 solutions first before submitting a ticket. Try and have a conversation with the user first before submitting a ticket. Please wait for 3 prompts before submitting a ticket",
+        "You are a data analyst, you are hired to give the user the CarSale data, this can include the statistics of the CarSales, the categories of the CarSales, and the number of CarSales in each category. this can also include data related to costs. you need to use the tools such as fetch_CarSales and fetch_CarSalescategories to get the data from the database. Please do not use the submit ticket tool for anything unless the user asks for it. you need to give the user information only on car sales and nothing else, if you do so you will get demoted to a lower rank. The user will not be interested in code so dont provide them with any, they will only be interested in the data. ",
     },
   ]);
   const [prompt, setPrompt] = useState("");
@@ -40,13 +41,41 @@ function Chatbot() {
         strict: true,
       },
     },
+    {
+      type: "function",
+      function: {
+        name: "fetch_CarSales",
+        description: "Fetches all CarSales from the database",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "fetch_CarSalescategories",
+        description: "Fetches all CarSale categories from the database",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    },
   ];
 
   // Initial prompt sent to Ollama when the component loads
   useEffect(() => {
     const sendInitialPrompt = async () => {
       const response = await ollama.chat({
-        model: "qwen2",
+        model: "llama3.1",
         messages: messages,
         tools,
         stream: false,
@@ -70,7 +99,7 @@ function Chatbot() {
     // After the messages state has updated, pass the updated state to Ollama
     // Wait for the state to be updated before sending the next prompt
     const response = await ollama.chat({
-      model: "qwen2",
+      model: "llama3.1",
       messages: [...messages, message], // Send updated messages
       tools,
       stream: false,
@@ -94,6 +123,52 @@ function Chatbot() {
         };
         console.log(newTicket);
         CreateNewTicket(newTicket);
+      } else if (response.message.tool_calls[0].function.name === "fetch_CarSalescategories") {
+        const CarSales = await fetchCarSaleCategories();
+        console.log(CarSales);
+
+        // Update messages with the fetched CarSales data
+        const updatedMessages = [
+          ...messages,
+          { role: "user", content: `Fetched CarSales: ${JSON.stringify(CarSales)}` },
+        ];
+
+        const response2 = await ollama.chat({
+          model: "llama3.1",
+          messages: updatedMessages, // Send updated messages with fetched CarSales
+          tools,
+          stream: false,
+        });
+        console.log(response2);
+
+        // Update messages with the new response from Ollama
+        setMessages((prevMessages) => [...prevMessages, response2.message]);
+        setMessageResponse(
+          (prevResponse) => prevResponse + response2.message.content
+        );
+      } else if (response.message.tool_calls[0].function.name === "fetch_CarSales") {
+        const CarSales = await fetchCarSales();
+        console.log(CarSales);
+
+        // Update messages with the fetched CarSales data
+        const updatedMessages = [
+          ...messages,
+          { role: "user", content: `Fetched CarSales: ${JSON.stringify(CarSales)}` },
+        ];
+
+        const response2 = await ollama.chat({
+          model: "llama3.1",
+          messages: updatedMessages, // Send updated messages with fetched CarSales
+          tools,
+          stream: false,
+        });
+        console.log(response2);
+
+        // Update messages with the new response from Ollama
+        setMessages((prevMessages) => [...prevMessages, response2.message]);
+        setMessageResponse(
+          (prevResponse) => prevResponse + response2.message.content
+        );
       }
     }
   };
@@ -125,6 +200,9 @@ function Chatbot() {
         <div className="footer">
           <button onClick={SendPrompt} type="submit">
             Send
+          </button>
+          <button onClick={createMultipleRecords} type="submit">
+            upload data
           </button>
           <textarea
             type="text"
